@@ -2,12 +2,12 @@ import os
 import subprocess
 from trainer import train_classifier
 from prune import prune_model_layers, evaluate_model
-from stripper import strip_model
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import torch
 from datasets import load_dataset
 from sklearn.model_selection import train_test_split
 import pandas as pd
+
 
 def tokenize_and_create_dataset(tokenizer, test_df):
     test_encodings = tokenizer(test_df['text'].tolist(), truncation=True, padding=True, max_length=512)
@@ -29,6 +29,7 @@ def tokenize_and_create_dataset(tokenizer, test_df):
     test_dataset = RefusalDataset(test_encodings, test_df['label'].tolist())
     print(f'Test dataset size: {len(test_dataset)}')
     return test_dataset
+
 
 def load_and_prepare_data(dataset_name):
     dataset = load_dataset(dataset_name)
@@ -73,6 +74,7 @@ def load_and_prepare_data(dataset_name):
     combined_data = combined_data.sample(frac=1, random_state=42).reset_index(drop=True)  # Ensure multilingual shuffling
     return combined_data
 
+
 def run_training(model_name, output_dir, dataset_name, batch_size=64, epochs=1, lr=1e-4, seed=42, max_length=512, initial_train=False, f1_prune_threshold=0.8):
     """
     Trains a model using the train_classifier function from trainer.py.
@@ -98,6 +100,7 @@ def run_training(model_name, output_dir, dataset_name, batch_size=64, epochs=1, 
     )
     print(f"Evaluation Results after Training: {eval_results}")
     return eval_results
+
 
 def run_pruning(model_path, dataset_name, output_dir, f1_threshold=0.8):
     """
@@ -151,47 +154,6 @@ def run_pruning(model_path, dataset_name, output_dir, f1_threshold=0.8):
     print(f"Evaluation Results after Pruning: {eval_results}")
     return eval_results
 
-def run_stripping(model_name, new_model_name, vocab_threshold=5, corpus_urls=None, vocab_size=80000):
-    """
-    Strips a model using the strip_model function from stripper.py.
-    """
-    # Create the models/ directory if it doesn't exist
-    os.makedirs('models', exist_ok=True)
-    
-    new_model_name = os.path.join('models', new_model_name)
-    model_name = os.path.join('models', model_name)
-    
-    print(f"Stripping: Model={model_name}, Output={new_model_name}")
-    if corpus_urls is None:
-        corpus_urls = [
-            "https://downloads.wortschatz-leipzig.de/corpora/rus-ru_web-public_2019_1M.tar.gz",
-            "https://downloads.wortschatz-leipzig.de/corpora/eng-com_web-public_2018_1M.tar.gz",
-            "https://downloads.wortschatz-leipzig.de/corpora/deu-com_web_2021_1M.tar.gz",
-            "https://downloads.wortschatz-leipzig.de/corpora/fra-ca_web_2020_300K.tar.gz",
-            "https://downloads.wortschatz-leipzig.de/corpora/spa-ve_web_2016_300K.tar.gz",
-        ]
-    strip_model(
-        model_name=model_name,
-        new_model_name=new_model_name,
-        vocab_threshold=vocab_threshold,
-        corpus_urls=corpus_urls,
-        vocab_size=vocab_size
-    )
-    # Evaluate the stripped model
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = AutoModelForSequenceClassification.from_pretrained(new_model_name).to(device)
-    tokenizer = AutoTokenizer.from_pretrained(new_model_name)
-    
-    data = load_and_prepare_data('chameleon-lizard/multilingual_refusals')
-    _, test_df = train_test_split(data, test_size=0.2, random_state=42, stratify=data['label'])
-
-    test_dataset = tokenize_and_create_dataset(tokenizer, test_df)
-    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=8, shuffle=False)
-    
-    eval_results = evaluate_model(model, test_loader)
-    print(f"Evaluation Results after Stripping: {eval_results}")
-
-    return eval_results
 
 def main():
     dataset_name = "chameleon-lizard/multilingual_refusals"
@@ -209,11 +171,7 @@ def main():
     retrained_output = "retrained_model"
     run_training(pruned_model_output, retrained_output, dataset_name, epochs=1, lr=1e-4, batch_size=64)
 
-    # 4. Strip the model
-    stripped_model_output = "stripped_model"
-    run_stripping(retrained_output, stripped_model_output)
-
-    # 5. Train again on the stripped model
+    # 4. Train again on the stripped model
     final_train_output = "final_training"
     run_training(stripped_model_output, final_train_output, dataset_name, epochs=1, lr=1e-4, batch_size=64)
 
